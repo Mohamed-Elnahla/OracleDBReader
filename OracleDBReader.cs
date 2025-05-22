@@ -59,10 +59,12 @@ namespace OracleDBReader
         // Helper to build a row dictionary (sync)
         private static Dictionary<string, object?> BuildRow(IDataReader reader, string[] columnNames)
         {
-            return BuildRowInternal(
-                columnNames,
-                i => Task.FromResult<object?>(reader.IsDBNull(i) ? null : reader.GetValue(i))
-            ).GetAwaiter().GetResult();
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < columnNames.Length; i++)
+            {
+                row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            }
+            return row;
         }
 
         // Helper to build a row dictionary (async, generic IDataReader)
