@@ -140,7 +140,28 @@ namespace OracleDBReader
             {
                 using (conn)
                 {
-                    conn.Open();
+                    // Prefer async open if available, otherwise fall back to sync open
+                    if (conn is System.Data.Common.DbConnection dbConn)
+                    {
+                        var openAsync = dbConn.GetType().GetMethod("OpenAsync", new[] { typeof(CancellationToken) });
+                        if (openAsync != null)
+                        {
+                            var task = (Task?)openAsync.Invoke(dbConn, new object[] { cancellationToken });
+                            if (task != null)
+                                await task.ConfigureAwait(false);
+                            else
+                                await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                    else
+                    {
+                        // Note: Synchronous connection open may block async flow. Only used for non-async IDbConnection implementations.
+                        conn.Open();
+                    }
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = sqlQuery;
                     using var reader = cmd.ExecuteReader(CommandBehavior.SequentialAccess);
