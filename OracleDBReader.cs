@@ -28,7 +28,7 @@ namespace OracleDBReader
         {
             var trimmed = sqlQuery.TrimStart();
             // Accept SELECT or WITH, possibly followed by whitespace and Oracle hints (/*+ ... */)
-            var selectPattern = @"^(SELECT|WITH)\s*(/\*\+.*?\*/)?";
+            var selectPattern = @"^(SELECT|WITH)\s*((/\*\+.*?\*/\s*)*)";
             if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, selectPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 return;
             throw new InvalidOperationException(OnlySelectError);
