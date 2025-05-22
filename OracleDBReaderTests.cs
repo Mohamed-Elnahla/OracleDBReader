@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Linq;
 using System.Threading;
+using System.Collections.Concurrent;
 
 namespace OracleDBReader.Tests
 {
@@ -154,20 +155,17 @@ namespace OracleDBReader.Tests
             mockReader.Setup(r => r.IsDBNull(0)).Returns(false);
             mockReader.SetupSequence(r => r.GetValue(0)).Returns(100).Returns(101).Returns(102);
 
-            var processedIds = new List<int>();
+            var processedIds = new ConcurrentBag<int>();
             Func<Dictionary<string, object?>, Task> rowProcessor = async (row) =>
             {
                 await Task.Delay(10);
-                lock (processedIds)
-                {
-                    processedIds.Add((int)row["ID"]!);
-                }
+                processedIds.Add((int)row["ID"]!);
             };
 
             await OracleDBReader.StreamQueryParallelAsync(TestDataSource, TestUser, TestPassword, sqlQuery, rowProcessor, maxDegreeOfParallelism: 2);
 
             Assert.AreEqual(3, processedIds.Count, "Should process all three rows.");
-            CollectionAssert.AreEquivalent(new List<int> { 100, 101, 102 }, processedIds, "Processed IDs do not match expected IDs.");
+            CollectionAssert.AreEquivalent(new List<int> { 100, 101, 102 }, processedIds.ToList(), "Processed IDs do not match expected IDs.");
         }
 
         [TestMethod]

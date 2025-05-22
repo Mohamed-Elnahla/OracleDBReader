@@ -22,17 +22,47 @@ namespace OracleDBReader
         {
             var trimmed = sqlQuery.TrimStart();
             // Accept SELECT or WITH, possibly followed by whitespace and Oracle hints (/*+ ... */)
-            if (trimmed.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("WITH", StringComparison.OrdinalIgnoreCase))
-            {
-                // Accept
-                return;
-            }
-            // Accept SELECT or WITH followed by whitespace and Oracle hint
             var selectPattern = @"^(SELECT|WITH)\s*(/\*\+.*?\*/)?";
             if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, selectPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 return;
             throw new InvalidOperationException(OnlySelectError);
+        }
+
+        // Helper to extract column names from a data reader
+        private static string[] GetColumnNames(IDataReader reader)
+        {
+            var columnNames = new string[reader.FieldCount];
+            for (int i = 0; i < reader.FieldCount; i++)
+                columnNames[i] = reader.GetName(i);
+            return columnNames;
+        }
+
+        // Helper to build a row dictionary (sync)
+        private static Dictionary<string, object?> BuildRow(IDataReader reader, string[] columnNames)
+        {
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < columnNames.Length; i++)
+                row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            return row;
+        }
+
+        // Helper to build a row dictionary (async, generic IDataReader)
+        private static async Task<Dictionary<string, object?>> BuildRowAsync(IDataReader reader, string[] columnNames, CancellationToken cancellationToken)
+        {
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < columnNames.Length; i++)
+            {
+                // Try to use IsDBNullAsync if available, else fallback to sync
+                if (reader is System.Data.Common.DbDataReader dbAsyncReader)
+                {
+                    row[columnNames[i]] = await dbAsyncReader.IsDBNullAsync(i, cancellationToken) ? null : dbAsyncReader.GetValue(i);
+                }
+                else
+                {
+                    row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                }
+            }
+            return row;
         }
 
         /// <summary>
@@ -99,15 +129,10 @@ namespace OracleDBReader
                     await using var cmd = oracleConn.CreateCommand();
                     cmd.CommandText = sqlQuery;
                     await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-                    var columnNames = new string[reader.FieldCount];
-                    for (int i = 0; i < reader.FieldCount; i++)
-                        columnNames[i] = reader.GetName(i);
+                    var columnNames = GetColumnNames(reader);
                     while (await reader.ReadAsync(cancellationToken))
                     {
-                        var row = new Dictionary<string, object?>();
-                        for (int i = 0; i < columnNames.Length; i++)
-                            row[columnNames[i]] = await reader.IsDBNullAsync(i, cancellationToken) ? null : reader.GetValue(i);
-                        yield return row;
+                        yield return await BuildRowAsync(reader, columnNames, cancellationToken);
                     }
                 }
             }
@@ -119,15 +144,14 @@ namespace OracleDBReader
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = sqlQuery;
                     using var reader = cmd.ExecuteReader(CommandBehavior.SequentialAccess);
-                    var columnNames = new string[reader.FieldCount];
-                    for (int i = 0; i < columnNames.Length; i++)
-                        columnNames[i] = reader.GetName(i);
+                    var columnNames = GetColumnNames(reader);
                     while (reader.Read())
                     {
-                        var row = new Dictionary<string, object?>();
-                        for (int i = 0; i < columnNames.Length; i++)
-                            row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                        yield return row;
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            throw new OperationCanceledException(cancellationToken);
+                        }
+                        yield return BuildRow(reader, columnNames);
                     }
                 }
             }
