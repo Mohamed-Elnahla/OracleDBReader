@@ -75,6 +75,20 @@ namespace OracleDBReader
             );
         }
 
+        // Helper to open a connection asynchronously if possible, otherwise synchronously
+        private static async Task OpenConnectionAsync(IDbConnection conn, CancellationToken cancellationToken)
+        {
+            if (conn is System.Data.Common.DbConnection dbConn)
+            {
+                await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // Note: Synchronous connection open may block async flow. Only used for non-async IDbConnection implementations.
+                conn.Open();
+            }
+        }
+
         /// <summary>
         /// Executes a SQL query and returns the result as a JSON string with the table name set to "Table".
         /// </summary>
@@ -150,15 +164,7 @@ namespace OracleDBReader
             {
                 using (conn)
                 {
-                    if (conn is System.Data.Common.DbConnection dbConn)
-                    {
-                        await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        // Note: Synchronous connection open may block async flow. Only used for non-async IDbConnection implementations.
-                        conn.Open();
-                    }
+                    await OpenConnectionAsync(conn, cancellationToken);
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = sqlQuery;
                     using var reader = cmd.ExecuteReader(CommandBehavior.SequentialAccess);
