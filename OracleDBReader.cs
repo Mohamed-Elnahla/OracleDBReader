@@ -13,7 +13,15 @@ namespace OracleDBReader
     /// </summary>
     public class OracleDBReader : IDisposable
     {
-        private bool _disposed;
+        private const string OnlySelectError = "Only SELECT queries are allowed. Non-read actions are not permitted.";
+
+        private static void EnsureSelectQuery(string sqlQuery)
+        {
+            var trimmed = sqlQuery.TrimStart();
+            if (!(trimmed.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
+                  trimmed.StartsWith("WITH", StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException(OnlySelectError);
+        }
 
         /// <summary>
         /// Executes a SQL query and returns the result as a JSON string with the table name set to "Table".
@@ -24,8 +32,10 @@ namespace OracleDBReader
         /// <param name="sqlQuery">The SQL query to execute.</param>
         /// <param name="cancellationToken">A cancellation token.</param>
         /// <returns>A JSON string representing the result set.</returns>
-        public async Task<string> QueryToJsonAsync(string dataSource, string username, string password, string sqlQuery, CancellationToken cancellationToken = default)
+        public static async Task<string> QueryToJsonAsync(string dataSource, string username, string password, string sqlQuery, CancellationToken cancellationToken = default)
         {
+            EnsureSelectQuery(sqlQuery);
+
             var rows = new List<Dictionary<string, object?>>();
             await foreach (var row in StreamQueryRowsAsync(dataSource, username, password, sqlQuery, cancellationToken))
             {
@@ -44,8 +54,10 @@ namespace OracleDBReader
         /// <param name="sqlQuery">The SQL query to execute.</param>
         /// <param name="cancellationToken">A cancellation token.</param>
         /// <returns>An async enumerable of JSON strings, each representing a row.</returns>
-        public async IAsyncEnumerable<string> StreamQueryAsJsonAsync(string dataSource, string username, string password, string sqlQuery, CancellationToken cancellationToken = default)
+        public static async IAsyncEnumerable<string> StreamQueryAsJsonAsync(string dataSource, string username, string password, string sqlQuery, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
+            EnsureSelectQuery(sqlQuery);
+
             await foreach (var row in StreamQueryRowsAsync(dataSource, username, password, sqlQuery, cancellationToken))
             {
                 var table = new Dictionary<string, object?> { ["Table"] = new[] { row } };
@@ -62,8 +74,10 @@ namespace OracleDBReader
         /// <param name="sqlQuery">The SQL query to execute.</param>
         /// <param name="cancellationToken">A cancellation token.</param>
         /// <returns>An async enumerable of dictionaries representing rows.</returns>
-        private async IAsyncEnumerable<Dictionary<string, object?>> StreamQueryRowsAsync(string dataSource, string username, string password, string sqlQuery, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        private static async IAsyncEnumerable<Dictionary<string, object?>> StreamQueryRowsAsync(string dataSource, string username, string password, string sqlQuery, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
+            EnsureSelectQuery(sqlQuery);
+
             var connString = $"Data Source={dataSource};User Id={username};Password={password};";
             await using var conn = new OracleConnection(connString);
             await conn.OpenAsync(cancellationToken);
@@ -92,8 +106,10 @@ namespace OracleDBReader
         /// <param name="rowProcessor">A callback to process each row in parallel.</param>
         /// <param name="maxDegreeOfParallelism">The maximum degree of parallelism.</param>
         /// <param name="cancellationToken">A cancellation token.</param>
-        public async Task StreamQueryParallelAsync(string dataSource, string username, string password, string sqlQuery, Func<Dictionary<string, object?>, Task> rowProcessor, int maxDegreeOfParallelism = 4, CancellationToken cancellationToken = default)
+        public static async Task StreamQueryParallelAsync(string dataSource, string username, string password, string sqlQuery, Func<Dictionary<string, object?>, Task> rowProcessor, int maxDegreeOfParallelism = 4, CancellationToken cancellationToken = default)
         {
+            EnsureSelectQuery(sqlQuery);
+
             var throttler = new SemaphoreSlim(maxDegreeOfParallelism);
             var tasks = new List<Task>();
             await foreach (var row in StreamQueryRowsAsync(dataSource, username, password, sqlQuery, cancellationToken))
@@ -108,11 +124,9 @@ namespace OracleDBReader
             await Task.WhenAll(tasks);
         }
 
-        /// <inheritdoc/>
-        public void Dispose()
-        {
-            _disposed = true;
-            GC.SuppressFinalize(this);
-        }
+        /// <summary>
+        /// Implement IDisposable explicitly to conform to the pattern.
+        /// </summary>
+        void IDisposable.Dispose() { }
     }
 }
