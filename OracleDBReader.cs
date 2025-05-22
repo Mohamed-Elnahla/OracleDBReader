@@ -11,16 +11,115 @@ namespace OracleDBReader
     /// <summary>
     /// Provides methods to stream Oracle database query results as JSON.
     /// </summary>
-    public class OracleDBReader : IDisposable
+    public static class OracleDBReader // Made class static
     {
         private const string OnlySelectError = "Only SELECT queries are allowed. Non-read actions are not permitted.";
+
+        /// <summary>
+        /// Factory for creating <see cref="IDbConnection"/> instances.
+        /// </summary>
+        /// <remarks>
+        /// By default, this factory creates <see cref="OracleConnection"/> instances using the provided connection string.
+        /// It can be overridden for testing purposes to provide mock or alternative implementations of <see cref="IDbConnection"/>.
+        /// </remarks>
+        internal static Func<string, IDbConnection> DbConnectionFactory { get; set; } = cs => new OracleConnection(cs);
 
         private static void EnsureSelectQuery(string sqlQuery)
         {
             var trimmed = sqlQuery.TrimStart();
-            if (!(trimmed.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
-                  trimmed.StartsWith("WITH", StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException(OnlySelectError);
+            // Accept SELECT or WITH, possibly followed by whitespace and Oracle hints (/*+ ... */)
+            var selectPattern = @"^(SELECT|WITH)\s*((/\*\+.*?\*/\s*)*)";
+            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, selectPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return;
+            throw new InvalidOperationException(OnlySelectError);
+        }
+
+        // Helper to extract column names from a data reader
+        private static string[] GetColumnNames(IDataReader reader)
+        {
+            var columnNames = new string[reader.FieldCount];
+            for (int i = 0; i < reader.FieldCount; i++)
+                columnNames[i] = reader.GetName(i);
+            return columnNames;
+        }
+
+        // Internal helper to build a row dictionary
+        private static async Task<Dictionary<string, object?>> BuildRowInternal(
+            string[] columnNames,
+            Func<int, Task<object?>> getValueAsync)
+        {
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < columnNames.Length; i++)
+            {
+                row[columnNames[i]] = await getValueAsync(i);
+            }
+            return row;
+        }
+
+        // Helper to build a row dictionary (sync)
+        private static Dictionary<string, object?> BuildRow(IDataReader reader, string[] columnNames)
+        {
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < columnNames.Length; i++)
+            {
+                row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            }
+            return row;
+        }
+
+        // Helper to build a row dictionary (async, generic IDataReader)
+        private static async Task<Dictionary<string, object?>> BuildRowAsync(IDataReader reader, string[] columnNames, CancellationToken cancellationToken)
+        {
+            return await BuildRowInternal(
+                columnNames,
+                async i =>
+                {
+                    if (reader is System.Data.Common.DbDataReader dbAsyncReader)
+                    {
+                        return await dbAsyncReader.IsDBNullAsync(i, cancellationToken) ? null : dbAsyncReader.GetValue(i);
+                    }
+                    return reader.IsDBNull(i) ? null : reader.GetValue(i);
+                }
+            );
+        }
+
+        // Helper to open a connection asynchronously if possible, otherwise synchronously
+        private static async Task OpenConnectionAsync(IDbConnection conn, CancellationToken cancellationToken)
+        {
+            if (conn is System.Data.Common.DbConnection dbConn)
+            {
+                await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // Note: Synchronous connection open may block async flow. Only used for non-async IDbConnection implementations.
+                conn.Open();
+            }
+        }
+
+        // Shared helper to yield rows from a data reader (async or sync)
+        private static async IAsyncEnumerable<Dictionary<string, object?>> ReadRowsAsync(
+            IDataReader reader,
+            string[] columnNames,
+            Func<IDataReader, string[], CancellationToken, Task<Dictionary<string, object?>>> buildRowAsync,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            if (reader is System.Data.Common.DbDataReader dbAsyncReader)
+            {
+                while (await dbAsyncReader.ReadAsync(cancellationToken))
+                {
+                    yield return await buildRowAsync(dbAsyncReader, columnNames, cancellationToken);
+                }
+            }
+            else
+            {
+                while (reader.Read())
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        throw new OperationCanceledException(cancellationToken);
+                    yield return await buildRowAsync(reader, columnNames, cancellationToken);
+                }
+            }
         }
 
         /// <summary>
@@ -77,22 +176,37 @@ namespace OracleDBReader
         private static async IAsyncEnumerable<Dictionary<string, object?>> StreamQueryRowsAsync(string dataSource, string username, string password, string sqlQuery, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
             EnsureSelectQuery(sqlQuery);
-
             var connString = $"Data Source={dataSource};User Id={username};Password={password};";
-            await using var conn = new OracleConnection(connString);
-            await conn.OpenAsync(cancellationToken);
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = sqlQuery;
-            await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-            var fieldCount = reader.FieldCount;
-            while (await reader.ReadAsync(cancellationToken))
+            var conn = DbConnectionFactory(connString);
+            if (conn is OracleConnection oracleConn)
             {
-                var row = new Dictionary<string, object?>();
-                for (int i = 0; i < fieldCount; i++)
+                await using (oracleConn)
                 {
-                    row[reader.GetName(i)] = await reader.IsDBNullAsync(i, cancellationToken) ? null : reader.GetValue(i);
+                    await oracleConn.OpenAsync(cancellationToken);
+                    await using var cmd = oracleConn.CreateCommand();
+                    cmd.CommandText = sqlQuery;
+                    await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                    var columnNames = GetColumnNames(reader);
+                    await foreach (var row in ReadRowsAsync(reader, columnNames, async (r, cols, ct) => await BuildRowAsync(r, cols, ct), cancellationToken))
+                    {
+                        yield return row;
+                    }
                 }
-                yield return row;
+            }
+            else
+            {
+                using (conn)
+                {
+                    await OpenConnectionAsync(conn, cancellationToken);
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = sqlQuery;
+                    using var reader = cmd.ExecuteReader(CommandBehavior.SequentialAccess);
+                    var columnNames = GetColumnNames(reader);
+                    await foreach (var row in ReadRowsAsync(reader, columnNames, (r, cols, ct) => Task.FromResult(BuildRow(r, cols)), cancellationToken))
+                    {
+                        yield return row;
+                    }
+                }
             }
         }
 
@@ -123,10 +237,5 @@ namespace OracleDBReader
             }
             await Task.WhenAll(tasks);
         }
-
-        /// <summary>
-        /// Implement IDisposable explicitly to conform to the pattern.
-        /// </summary>
-        void IDisposable.Dispose() { }
     }
 }
