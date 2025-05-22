@@ -1,5 +1,6 @@
 # OracleDBReader
 
+[![Build Status](https://github.com/Mohamed-Elnahla/OracleDBReader/actions/workflows/release.yml/badge.svg)](https://github.com/Mohamed-Elnahla/OracleDBReader/actions/workflows/release.yml)
 [![NuGet Version](https://img.shields.io/nuget/v/OracleDBReader.svg)](https://www.nuget.org/packages/OracleDBReader)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/OracleDBReader.svg)](https://www.nuget.org/packages/OracleDBReader)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -90,6 +91,43 @@ Streams and processes rows in parallel using the provided callback. Allows you t
 - Secure your database credentials and avoid hardcoding them in source code.
 - Dispose of the `OracleDBReader` instance after use (use `using var ...`).
 - For best performance, tune `maxDegreeOfParallelism` based on your workload and system resources.
+
+---
+
+## Build & Release
+
+This project uses [GitHub Actions](.github/workflows/release.yml) for CI/CD. The workflow automatically builds, tests, packs, and publishes NuGet and symbol packages when a new tag matching `v*.*.*` is pushed.
+
+### Requirements
+
+- [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+
+### Local Build & Test
+
+```sh
+# Restore dependencies
+ dotnet restore OracleDBReader.sln
+
+# Build in Release mode
+ dotnet build --configuration Release --no-restore
+
+# Run tests
+ dotnet test --configuration Release --no-build --verbosity normal
+
+# Pack NuGet and symbol packages
+ dotnet pack --configuration Release --no-build --output ./artifacts /p:IncludeSymbols=true /p:SymbolPackageFormat=snupkg
+```
+
+### Release & NuGet Publishing
+
+- On every push of a tag like `v1.2.3`, the workflow:
+  - Builds and tests the solution
+  - Packs NuGet and symbol packages
+  - Uploads artifacts
+  - Creates a GitHub Release with the packages attached
+  - Publishes to [NuGet.org](https://www.nuget.org/packages/OracleDBReader)
+
+See `.github/workflows/release.yml` for details.
 
 ---
 
