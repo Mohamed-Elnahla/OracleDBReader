@@ -3,7 +3,6 @@ using OracleDBReader;
 using System;
 using System.Threading.Tasks;
 using Moq; // Ensure Moq is referenced in the .csproj
-using Oracle.ManagedDataAccess.Client; // Ensure Oracle.ManagedDataAccess.Client is referenced
 using System.Data;
 using System.Collections.Generic;
 using System.Text.Json;
@@ -22,10 +21,10 @@ namespace OracleDBReader.Tests
         [TestInitialize] // This attribute is from Microsoft.VisualStudio.TestTools.UnitTesting
         public void TestInitialize()
         {
-            OracleDBReader.OracleConnectionFactory = cs => new OracleConnection(cs);
+            OracleDBReader.DbConnectionFactory = cs => new Mock<IDbConnection>().Object;
         }
 
-        [TestMethod] // This attribute is from Microsoft.VisualStudio.TestTools.UnitTesting
+        [TestMethod]
         public async Task QueryToJsonAsync_ShouldThrowException_ForNonQuery()
         {
             var sqlQuery = "INSERT INTO Users (Name) VALUES ('Test');";
@@ -56,51 +55,40 @@ namespace OracleDBReader.Tests
         }
 
         [TestMethod]
-        public async Task QueryToJsonAsync_ReturnsCorrectJson_ForSelectQuery()
+        public async Task QueryToJsonAsync_ReturnsCorrectJson_ForSelectQuery_WithInterfaces()
         {
-            var mockConnection = new Mock<OracleConnection>();
-            var mockCommand = new Mock<OracleCommand>();
-            var mockDataReader = new Mock<OracleDataReader>();
+            var mockConnection = new Mock<IDbConnection>();
+            var mockCommand = new Mock<IDbCommand>();
+            var mockReader = new Mock<IDataReader>();
             var sqlQuery = "SELECT ID, NAME FROM Users";
 
-            OracleDBReader.OracleConnectionFactory = cs => mockConnection.Object;
+            OracleDBReader.DbConnectionFactory = cs => mockConnection.Object;
 
-            mockConnection.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            mockConnection.Setup(c => c.Open());
             mockConnection.Setup(c => c.CreateCommand()).Returns(mockCommand.Object);
-            mockCommand.Setup(cmd => cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, It.IsAny<CancellationToken>()))
-                       .ReturnsAsync(mockDataReader.Object);
+            mockCommand.SetupProperty(c => c.CommandText);
+            mockCommand.Setup(c => c.ExecuteReader(CommandBehavior.SequentialAccess)).Returns(mockReader.Object);
 
-            int readCallCount = 0;
-            mockDataReader.Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
-                          .ReturnsAsync(() => { readCallCount++; return readCallCount <= 2; });
-            mockDataReader.SetupGet(r => r.FieldCount).Returns(2);
-            mockDataReader.Setup(r => r.GetName(0)).Returns("ID");
-            mockDataReader.Setup(r => r.GetName(1)).Returns("NAME");
-
-            // Setup for row 1
-            mockDataReader.Setup(r => r.IsDBNullAsync(0, It.IsAny<CancellationToken>()))
-                          .ReturnsAsync(() => readCallCount == 1 ? false : throw new InvalidOperationException("IsDBNullAsync(0) unexpected call"));
-            mockDataReader.Setup(r => r.GetValue(0))
-                          .Returns(() => readCallCount == 1 ? 1 : throw new InvalidOperationException("GetValue(0) unexpected call"));
-            mockDataReader.Setup(r => r.IsDBNullAsync(1, It.IsAny<CancellationToken>()))
-                          .ReturnsAsync(() => readCallCount == 1 ? false : (readCallCount == 2 ? true : throw new InvalidOperationException("IsDBNullAsync(1) unexpected call")));
-            mockDataReader.Setup(r => r.GetValue(1))
-                          .Returns(() => readCallCount == 1 ? "Test User 1" : throw new InvalidOperationException("GetValue(1) unexpected call for non-null"));
-
-            // Setup for row 2 (ID and NAME=null)
-            mockDataReader.Setup(r => r.IsDBNullAsync(0, It.IsAny<CancellationToken>()))
-                          .ReturnsAsync(() => readCallCount == 2 ? false : (readCallCount == 1 ? false : throw new InvalidOperationException("IsDBNullAsync(0) unexpected call for row 2 logic")));
-            mockDataReader.Setup(r => r.GetValue(0))
-                          .Returns(() => readCallCount == 2 ? 2 : (readCallCount == 1 ? 1 : throw new InvalidOperationException("GetValue(0) unexpected call for row 2 logic")));
+            // Setup reader for two rows
+            var readSequence = new Queue<bool>(new[] { true, true, false });
+            mockReader.Setup(r => r.Read()).Returns(() => readSequence.Dequeue());
+            mockReader.SetupGet(r => r.FieldCount).Returns(2);
+            mockReader.Setup(r => r.GetName(0)).Returns("ID");
+            mockReader.Setup(r => r.GetName(1)).Returns("NAME");
+            // Row 1
+            mockReader.SetupSequence(r => r.IsDBNull(0)).Returns(false).Returns(false);
+            mockReader.SetupSequence(r => r.GetValue(0)).Returns(1).Returns(2);
+            mockReader.SetupSequence(r => r.IsDBNull(1)).Returns(false).Returns(true);
+            mockReader.SetupSequence(r => r.GetValue(1)).Returns("Test User 1").Returns(DBNull.Value);
 
             var jsonResult = await OracleDBReader.QueryToJsonAsync(TestDataSource, TestUser, TestPassword, sqlQuery);
 
             var expectedObject = new
             {
-                Table = new[]
+                Table = new List<object>
                 {
                     new { ID = 1, NAME = "Test User 1" },
-                    new { ID = 2, NAME = (string?)null }
+                    new { ID = 2, NAME = (object?)null }
                 }
             };
             var expectedJson = JsonSerializer.Serialize(expectedObject);
@@ -108,30 +96,29 @@ namespace OracleDBReader.Tests
         }
 
         [TestMethod]
-        public async Task StreamQueryAsJsonAsync_StreamsCorrectJson_ForSelectQuery()
+        public async Task StreamQueryAsJsonAsync_StreamsCorrectJson_ForSelectQuery_WithInterfaces()
         {
-            var mockConnection = new Mock<OracleConnection>();
-            var mockCommand = new Mock<OracleCommand>();
-            var mockDataReader = new Mock<OracleDataReader>();
+            var mockConnection = new Mock<IDbConnection>();
+            var mockCommand = new Mock<IDbCommand>();
+            var mockReader = new Mock<IDataReader>();
             var sqlQuery = "SELECT ID, NAME FROM Users";
 
-            OracleDBReader.OracleConnectionFactory = cs => mockConnection.Object;
+            OracleDBReader.DbConnectionFactory = cs => mockConnection.Object;
 
-            mockConnection.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            mockConnection.Setup(c => c.Open());
             mockConnection.Setup(c => c.CreateCommand()).Returns(mockCommand.Object);
-            mockCommand.Setup(cmd => cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, It.IsAny<CancellationToken>()))
-                       .ReturnsAsync(mockDataReader.Object);
+            mockCommand.SetupProperty(c => c.CommandText);
+            mockCommand.Setup(c => c.ExecuteReader(CommandBehavior.SequentialAccess)).Returns(mockReader.Object);
 
-            var readCallCount = 0;
-            mockDataReader.Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
-                          .ReturnsAsync(() => ++readCallCount <= 1);
-            mockDataReader.SetupGet(r => r.FieldCount).Returns(2);
-            mockDataReader.Setup(r => r.GetName(0)).Returns("ID");
-            mockDataReader.Setup(r => r.GetName(1)).Returns("NAME");
-            mockDataReader.Setup(r => r.IsDBNullAsync(0, It.IsAny<CancellationToken>())).ReturnsAsync(false);
-            mockDataReader.Setup(r => r.GetValue(0)).Returns(10);
-            mockDataReader.Setup(r => r.IsDBNullAsync(1, It.IsAny<CancellationToken>())).ReturnsAsync(false);
-            mockDataReader.Setup(r => r.GetValue(1)).Returns("Stream User");
+            var readSequence = new Queue<bool>(new[] { true, false });
+            mockReader.Setup(r => r.Read()).Returns(() => readSequence.Dequeue());
+            mockReader.SetupGet(r => r.FieldCount).Returns(2);
+            mockReader.Setup(r => r.GetName(0)).Returns("ID");
+            mockReader.Setup(r => r.GetName(1)).Returns("NAME");
+            mockReader.Setup(r => r.IsDBNull(0)).Returns(false);
+            mockReader.Setup(r => r.GetValue(0)).Returns(10);
+            mockReader.Setup(r => r.IsDBNull(1)).Returns(false);
+            mockReader.Setup(r => r.GetValue(1)).Returns("Stream User");
 
             var results = new List<string>();
             await foreach (var jsonRow in OracleDBReader.StreamQueryAsJsonAsync(TestDataSource, TestUser, TestPassword, sqlQuery))
@@ -146,27 +133,26 @@ namespace OracleDBReader.Tests
         }
 
         [TestMethod]
-        public async Task StreamQueryParallelAsync_ProcessesRows_ForSelectQuery()
+        public async Task StreamQueryParallelAsync_ProcessesRows_ForSelectQuery_WithInterfaces()
         {
-            var mockConnection = new Mock<OracleConnection>();
-            var mockCommand = new Mock<OracleCommand>();
-            var mockDataReader = new Mock<OracleDataReader>();
+            var mockConnection = new Mock<IDbConnection>();
+            var mockCommand = new Mock<IDbCommand>();
+            var mockReader = new Mock<IDataReader>();
             var sqlQuery = "SELECT ID FROM Users";
 
-            OracleDBReader.OracleConnectionFactory = cs => mockConnection.Object;
+            OracleDBReader.DbConnectionFactory = cs => mockConnection.Object;
 
-            mockConnection.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            mockConnection.Setup(c => c.Open());
             mockConnection.Setup(c => c.CreateCommand()).Returns(mockCommand.Object);
-            mockCommand.Setup(cmd => cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, It.IsAny<CancellationToken>()))
-                       .ReturnsAsync(mockDataReader.Object);
+            mockCommand.SetupProperty(c => c.CommandText);
+            mockCommand.Setup(c => c.ExecuteReader(CommandBehavior.SequentialAccess)).Returns(mockReader.Object);
 
-            var readCallCount = 0;
-            mockDataReader.Setup(r => r.ReadAsync(It.IsAny<CancellationToken>()))
-                          .ReturnsAsync(() => ++readCallCount <= 3);
-            mockDataReader.SetupGet(r => r.FieldCount).Returns(1);
-            mockDataReader.Setup(r => r.GetName(0)).Returns("ID");
-            mockDataReader.Setup(r => r.IsDBNullAsync(0, It.IsAny<CancellationToken>())).ReturnsAsync(false);
-            mockDataReader.SetupSequence(r => r.GetValue(0)).Returns(100).Returns(101).Returns(102);
+            var readSequence = new Queue<bool>(new[] { true, true, true, false });
+            mockReader.Setup(r => r.Read()).Returns(() => readSequence.Dequeue());
+            mockReader.SetupGet(r => r.FieldCount).Returns(1);
+            mockReader.Setup(r => r.GetName(0)).Returns("ID");
+            mockReader.Setup(r => r.IsDBNull(0)).Returns(false);
+            mockReader.SetupSequence(r => r.GetValue(0)).Returns(100).Returns(101).Returns(102);
 
             var processedIds = new List<int>();
             Func<Dictionary<string, object?>, Task> rowProcessor = async (row) =>
@@ -185,24 +171,25 @@ namespace OracleDBReader.Tests
         }
 
         [TestMethod]
-        public async Task QueryToJsonAsync_Handles_EmptyResult()
+        public async Task QueryToJsonAsync_Handles_EmptyResult_WithInterfaces()
         {
-            var mockConnection = new Mock<OracleConnection>();
-            var mockCommand = new Mock<OracleCommand>();
-            var mockDataReader = new Mock<OracleDataReader>();
+            var mockConnection = new Mock<IDbConnection>();
+            var mockCommand = new Mock<IDbCommand>();
+            var mockReader = new Mock<IDataReader>();
             var sqlQuery = "SELECT ID, NAME FROM Users WHERE 1=0";
 
-            OracleDBReader.OracleConnectionFactory = cs => mockConnection.Object;
+            OracleDBReader.DbConnectionFactory = cs => mockConnection.Object;
 
-            mockConnection.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            mockConnection.Setup(c => c.Open());
             mockConnection.Setup(c => c.CreateCommand()).Returns(mockCommand.Object);
-            mockCommand.Setup(cmd => cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, It.IsAny<CancellationToken>()))
-                       .ReturnsAsync(mockDataReader.Object);
+            mockCommand.SetupProperty(c => c.CommandText);
+            mockCommand.Setup(c => c.ExecuteReader(CommandBehavior.SequentialAccess)).Returns(mockReader.Object);
 
-            mockDataReader.Setup(r => r.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
-            mockDataReader.SetupGet(r => r.FieldCount).Returns(2);
-            mockDataReader.Setup(r => r.GetName(0)).Returns("ID");
-            mockDataReader.Setup(r => r.GetName(1)).Returns("NAME");
+            var readSequence = new Queue<bool>(new[] { false });
+            mockReader.Setup(r => r.Read()).Returns(() => readSequence.Dequeue());
+            mockReader.SetupGet(r => r.FieldCount).Returns(2);
+            mockReader.Setup(r => r.GetName(0)).Returns("ID");
+            mockReader.Setup(r => r.GetName(1)).Returns("NAME");
 
             var jsonResult = await OracleDBReader.QueryToJsonAsync(TestDataSource, TestUser, TestPassword, sqlQuery);
 
@@ -212,24 +199,25 @@ namespace OracleDBReader.Tests
         }
 
         [TestMethod]
-        public async Task StreamQueryAsJsonAsync_Handles_EmptyResult()
+        public async Task StreamQueryAsJsonAsync_Handles_EmptyResult_WithInterfaces()
         {
-            var mockConnection = new Mock<OracleConnection>();
-            var mockCommand = new Mock<OracleCommand>();
-            var mockDataReader = new Mock<OracleDataReader>();
+            var mockConnection = new Mock<IDbConnection>();
+            var mockCommand = new Mock<IDbCommand>();
+            var mockReader = new Mock<IDataReader>();
             var sqlQuery = "SELECT ID, NAME FROM Users WHERE 1=0";
 
-            OracleDBReader.OracleConnectionFactory = cs => mockConnection.Object;
+            OracleDBReader.DbConnectionFactory = cs => mockConnection.Object;
 
-            mockConnection.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            mockConnection.Setup(c => c.Open());
             mockConnection.Setup(c => c.CreateCommand()).Returns(mockCommand.Object);
-            mockCommand.Setup(cmd => cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, It.IsAny<CancellationToken>()))
-                       .ReturnsAsync(mockDataReader.Object);
+            mockCommand.SetupProperty(c => c.CommandText);
+            mockCommand.Setup(c => c.ExecuteReader(CommandBehavior.SequentialAccess)).Returns(mockReader.Object);
 
-            mockDataReader.Setup(r => r.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
-            mockDataReader.SetupGet(r => r.FieldCount).Returns(2);
-            mockDataReader.Setup(r => r.GetName(0)).Returns("ID");
-            mockDataReader.Setup(r => r.GetName(1)).Returns("NAME");
+            var readSequence = new Queue<bool>(new[] { false });
+            mockReader.Setup(r => r.Read()).Returns(() => readSequence.Dequeue());
+            mockReader.SetupGet(r => r.FieldCount).Returns(2);
+            mockReader.Setup(r => r.GetName(0)).Returns("ID");
+            mockReader.Setup(r => r.GetName(1)).Returns("NAME");
 
             var results = new List<string>();
             await foreach (var jsonRow in OracleDBReader.StreamQueryAsJsonAsync(TestDataSource, TestUser, TestPassword, sqlQuery))
@@ -241,23 +229,24 @@ namespace OracleDBReader.Tests
         }
 
         [TestMethod]
-        public async Task StreamQueryParallelAsync_Handles_EmptyResult()
+        public async Task StreamQueryParallelAsync_Handles_EmptyResult_WithInterfaces()
         {
-            var mockConnection = new Mock<OracleConnection>();
-            var mockCommand = new Mock<OracleCommand>();
-            var mockDataReader = new Mock<OracleDataReader>();
+            var mockConnection = new Mock<IDbConnection>();
+            var mockCommand = new Mock<IDbCommand>();
+            var mockReader = new Mock<IDataReader>();
             var sqlQuery = "SELECT ID FROM Users WHERE 1=0";
 
-            OracleDBReader.OracleConnectionFactory = cs => mockConnection.Object;
+            OracleDBReader.DbConnectionFactory = cs => mockConnection.Object;
 
-            mockConnection.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            mockConnection.Setup(c => c.Open());
             mockConnection.Setup(c => c.CreateCommand()).Returns(mockCommand.Object);
-            mockCommand.Setup(cmd => cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, It.IsAny<CancellationToken>()))
-                       .ReturnsAsync(mockDataReader.Object);
+            mockCommand.SetupProperty(c => c.CommandText);
+            mockCommand.Setup(c => c.ExecuteReader(CommandBehavior.SequentialAccess)).Returns(mockReader.Object);
 
-            mockDataReader.Setup(r => r.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
-            mockDataReader.SetupGet(r => r.FieldCount).Returns(1);
-            mockDataReader.Setup(r => r.GetName(0)).Returns("ID");
+            var readSequence = new Queue<bool>(new[] { false });
+            mockReader.Setup(r => r.Read()).Returns(() => readSequence.Dequeue());
+            mockReader.SetupGet(r => r.FieldCount).Returns(1);
+            mockReader.Setup(r => r.GetName(0)).Returns("ID");
 
             var processedCount = 0;
             Func<Dictionary<string, object?>, Task> rowProcessor = (row) =>

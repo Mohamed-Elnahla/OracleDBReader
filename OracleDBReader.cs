@@ -15,8 +15,8 @@ namespace OracleDBReader
     {
         private const string OnlySelectError = "Only SELECT queries are allowed. Non-read actions are not permitted.";
 
-        // Factory for creating OracleConnection instances, settable for testing
-        internal static Func<string, OracleConnection> OracleConnectionFactory { get; set; } = cs => new OracleConnection(cs);
+        // Factory for creating IDbConnection instances, settable for testing
+        internal static Func<string, IDbConnection> DbConnectionFactory { get; set; } = cs => new OracleConnection(cs);
 
         private static void EnsureSelectQuery(string sqlQuery)
         {
@@ -80,32 +80,47 @@ namespace OracleDBReader
         private static async IAsyncEnumerable<Dictionary<string, object?>> StreamQueryRowsAsync(string dataSource, string username, string password, string sqlQuery, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
             EnsureSelectQuery(sqlQuery);
-
             var connString = $"Data Source={dataSource};User Id={username};Password={password};";
-            // Use the factory to create the connection
-            await using var conn = OracleConnectionFactory(connString);
-            await conn.OpenAsync(cancellationToken);
-
-            // Use OracleCommand and OracleDataReader
-            await using var cmd = conn.CreateCommand(); // Returns OracleCommand
-            cmd.CommandText = sqlQuery;
-
-            await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken); // Returns OracleDataReader
-
-            var columnNames = new string[reader.FieldCount];
-            for (int i = 0; i < reader.FieldCount; i++)
+            var conn = DbConnectionFactory(connString);
+            if (conn is OracleConnection oracleConn)
             {
-                columnNames[i] = reader.GetName(i);
-            }
-
-            while (await reader.ReadAsync(cancellationToken))
-            {
-                var row = new Dictionary<string, object?>();
-                for (int i = 0; i < columnNames.Length; i++)
+                await using (oracleConn)
                 {
-                    row[columnNames[i]] = await reader.IsDBNullAsync(i, cancellationToken) ? null : reader.GetValue(i);
+                    await oracleConn.OpenAsync(cancellationToken);
+                    await using var cmd = oracleConn.CreateCommand();
+                    cmd.CommandText = sqlQuery;
+                    await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                    var columnNames = new string[reader.FieldCount];
+                    for (int i = 0; i < reader.FieldCount; i++)
+                        columnNames[i] = reader.GetName(i);
+                    while (await reader.ReadAsync(cancellationToken))
+                    {
+                        var row = new Dictionary<string, object?>();
+                        for (int i = 0; i < columnNames.Length; i++)
+                            row[columnNames[i]] = await reader.IsDBNullAsync(i, cancellationToken) ? null : reader.GetValue(i);
+                        yield return row;
+                    }
                 }
-                yield return row;
+            }
+            else
+            {
+                using (conn)
+                {
+                    conn.Open();
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = sqlQuery;
+                    using var reader = cmd.ExecuteReader(CommandBehavior.SequentialAccess);
+                    var columnNames = new string[reader.FieldCount];
+                    for (int i = 0; i < columnNames.Length; i++)
+                        columnNames[i] = reader.GetName(i);
+                    while (reader.Read())
+                    {
+                        var row = new Dictionary<string, object?>();
+                        for (int i = 0; i < columnNames.Length; i++)
+                            row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                        yield return row;
+                    }
+                }
             }
         }
 
