@@ -1,6 +1,7 @@
 # OracleDBReader
 
 [![NuGet Version](https://img.shields.io/nuget/v/OracleDBReader.svg)](https://www.nuget.org/packages/OracleDBReader)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/OracleDBReader.svg)](https://www.nuget.org/packages/OracleDBReader)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![.NET 8.0](https://img.shields.io/badge/.NET-8.0-blue.svg)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 

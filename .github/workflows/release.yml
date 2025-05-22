@@ -10,6 +10,12 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
+      - name: Ensure tag exists
+        run: |
+          if (-not $env:GITHUB_REF.StartsWith('refs/tags/')) {
+            Write-Error 'This workflow must be triggered by a tag (refs/tags/v*.*.*)'; exit 1
+          }
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -32,23 +38,36 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
-      - name: Pack NuGet package
-        run: dotnet pack --configuration Release --no-build --output ./artifacts
+      - name: Pack NuGet and Symbol packages
+        run: dotnet pack --configuration Release --no-build --output ./artifacts /p:IncludeSymbols=true /p:SymbolPackageFormat=snupkg
 
-      - name: Upload NuGet package as artifact
+      - name: Upload NuGet and Symbol packages as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nuget-package
+          name: nuget-packages
           path: ./artifacts/*.nupkg
+
+      - name: Upload Symbol packages as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: symbol-packages
+          path: ./artifacts/*.snupkg
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ./artifacts/*.nupkg
+          files: |
+            ./artifacts/*.nupkg
+            ./artifacts/*.snupkg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to NuGet.org
         run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
+      - name: Publish symbols to NuGet.org
+        run: dotnet nuget push ./artifacts/*.snupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}

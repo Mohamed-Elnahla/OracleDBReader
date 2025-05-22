@@ -15,6 +15,7 @@
     <PackageTags>oracle;database;json;streaming;async;dotnet;nuget;etl;parallel</PackageTags>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <IncludeSource>true</IncludeSource>
     <Copyright>Copyright © 2025 Mohamed-Elnahla</Copyright>
     <PackageReadmeFile>README.md</PackageReadmeFile>
