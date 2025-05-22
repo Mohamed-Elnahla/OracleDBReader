@@ -19,7 +19,9 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>
-
+  <ItemGroup>  
+    <PackageReference Include="MSTest.TestFramework" Version="3.0.2" />  
+  </ItemGroup> 
   <ItemGroup>
     <ProjectReference Include="..\OracleDBReader\OracleDBReader.csproj" />
   </ItemGroup>
