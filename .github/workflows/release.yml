@@ -36,7 +36,7 @@ jobs:
         run: dotnet restore OracleDBReader.sln
 
       - name: Build
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build OracleDBReader.csproj --configuration Release --no-restore
 
       - name: Test
         run: dotnet test --configuration Release --no-build --verbosity normal
