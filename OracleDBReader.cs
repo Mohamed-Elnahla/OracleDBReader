@@ -97,6 +97,31 @@ namespace OracleDBReader
             }
         }
 
+        // Shared helper to yield rows from a data reader (async or sync)
+        private static async IAsyncEnumerable<Dictionary<string, object?>> ReadRowsAsync(
+            IDataReader reader,
+            string[] columnNames,
+            Func<IDataReader, string[], CancellationToken, Task<Dictionary<string, object?>>> buildRowAsync,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            if (reader is System.Data.Common.DbDataReader dbAsyncReader)
+            {
+                while (await dbAsyncReader.ReadAsync(cancellationToken))
+                {
+                    yield return await buildRowAsync(dbAsyncReader, columnNames, cancellationToken);
+                }
+            }
+            else
+            {
+                while (reader.Read())
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        throw new OperationCanceledException(cancellationToken);
+                    yield return await buildRowAsync(reader, columnNames, cancellationToken);
+                }
+            }
+        }
+
         /// <summary>
         /// Executes a SQL query and returns the result as a JSON string with the table name set to "Table".
         /// </summary>
@@ -162,9 +187,9 @@ namespace OracleDBReader
                     cmd.CommandText = sqlQuery;
                     await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
                     var columnNames = GetColumnNames(reader);
-                    while (await reader.ReadAsync(cancellationToken))
+                    await foreach (var row in ReadRowsAsync(reader, columnNames, async (r, cols, ct) => await BuildRowAsync(r, cols, ct), cancellationToken))
                     {
-                        yield return await BuildRowAsync(reader, columnNames, cancellationToken);
+                        yield return row;
                     }
                 }
             }
@@ -177,13 +202,9 @@ namespace OracleDBReader
                     cmd.CommandText = sqlQuery;
                     using var reader = cmd.ExecuteReader(CommandBehavior.SequentialAccess);
                     var columnNames = GetColumnNames(reader);
-                    while (reader.Read())
+                    await foreach (var row in ReadRowsAsync(reader, columnNames, (r, cols, ct) => Task.FromResult(BuildRow(r, cols)), cancellationToken))
                     {
-                        if (cancellationToken.IsCancellationRequested)
-                        {
-                            throw new OperationCanceledException(cancellationToken);
-                        }
-                        yield return BuildRow(reader, columnNames);
+                        yield return row;
                     }
                 }
             }
