@@ -39,7 +39,6 @@ namespace OracleDBReader
 
         // Internal helper to build a row dictionary
         private static async Task<Dictionary<string, object?>> BuildRowInternal(
-            IDataReader reader,
             string[] columnNames,
             Func<int, Task<object?>> getValueAsync)
         {
@@ -55,7 +54,6 @@ namespace OracleDBReader
         private static Dictionary<string, object?> BuildRow(IDataReader reader, string[] columnNames)
         {
             return BuildRowInternal(
-                reader,
                 columnNames,
                 i => Task.FromResult<object?>(reader.IsDBNull(i) ? null : reader.GetValue(i))
             ).GetAwaiter().GetResult();
@@ -65,7 +63,6 @@ namespace OracleDBReader
         private static async Task<Dictionary<string, object?>> BuildRowAsync(IDataReader reader, string[] columnNames, CancellationToken cancellationToken)
         {
             return await BuildRowInternal(
-                reader,
                 columnNames,
                 async i =>
                 {
@@ -153,22 +150,9 @@ namespace OracleDBReader
             {
                 using (conn)
                 {
-                    // Prefer async open if available, otherwise fall back to sync open
                     if (conn is System.Data.Common.DbConnection dbConn)
                     {
-                        var openAsync = dbConn.GetType().GetMethod("OpenAsync", new[] { typeof(CancellationToken) });
-                        if (openAsync != null)
-                        {
-                            var task = (Task?)openAsync.Invoke(dbConn, new object[] { cancellationToken });
-                            if (task != null)
-                                await task.ConfigureAwait(false);
-                            else
-                                await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
-                        }
+                        await dbConn.OpenAsync(cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
