@@ -11,9 +11,12 @@ namespace OracleDBReader
     /// <summary>
     /// Provides methods to stream Oracle database query results as JSON.
     /// </summary>
-    public class OracleDBReader : IDisposable
+    public static class OracleDBReader // Made class static
     {
         private const string OnlySelectError = "Only SELECT queries are allowed. Non-read actions are not permitted.";
+
+        // Factory for creating OracleConnection instances, settable for testing
+        internal static Func<string, OracleConnection> OracleConnectionFactory { get; set; } = cs => new OracleConnection(cs);
 
         private static void EnsureSelectQuery(string sqlQuery)
         {
@@ -79,18 +82,28 @@ namespace OracleDBReader
             EnsureSelectQuery(sqlQuery);
 
             var connString = $"Data Source={dataSource};User Id={username};Password={password};";
-            await using var conn = new OracleConnection(connString);
+            // Use the factory to create the connection
+            await using var conn = OracleConnectionFactory(connString);
             await conn.OpenAsync(cancellationToken);
-            await using var cmd = conn.CreateCommand();
+
+            // Use OracleCommand and OracleDataReader
+            await using var cmd = conn.CreateCommand(); // Returns OracleCommand
             cmd.CommandText = sqlQuery;
-            await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
-            var fieldCount = reader.FieldCount;
+
+            await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken); // Returns OracleDataReader
+
+            var columnNames = new string[reader.FieldCount];
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                columnNames[i] = reader.GetName(i);
+            }
+
             while (await reader.ReadAsync(cancellationToken))
             {
                 var row = new Dictionary<string, object?>();
-                for (int i = 0; i < fieldCount; i++)
+                for (int i = 0; i < columnNames.Length; i++)
                 {
-                    row[reader.GetName(i)] = await reader.IsDBNullAsync(i, cancellationToken) ? null : reader.GetValue(i);
+                    row[columnNames[i]] = await reader.IsDBNullAsync(i, cancellationToken) ? null : reader.GetValue(i);
                 }
                 yield return row;
             }
@@ -123,10 +136,5 @@ namespace OracleDBReader
             }
             await Task.WhenAll(tasks);
         }
-
-        /// <summary>
-        /// Implement IDisposable explicitly to conform to the pattern.
-        /// </summary>
-        void IDisposable.Dispose() { }
     }
 }
