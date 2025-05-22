@@ -33,7 +33,7 @@ jobs:
             nuget-${{ runner.os }}-
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore OracleDBReader.sln
 
       - name: Build
         run: dotnet build --configuration Release --no-restore
