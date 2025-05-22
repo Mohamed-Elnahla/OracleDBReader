@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
   workflow_dispatch:
 
 jobs:
@@ -16,7 +16,15 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
 
       - name: Restore dependencies
         run: dotnet restore
@@ -33,16 +41,6 @@ jobs:
           name: nuget-package
           path: ./artifacts/*.nupkg
 
-  release:
-    needs: build
-    runs-on: windows-latest
-    steps:
-      - name: Download NuGet package artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: nuget-package
-          path: ./artifacts
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -50,8 +48,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Optional: Publish to NuGet.org
-      # - name: Publish to NuGet
-      #   run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-      #   env:
-      #     NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      - name: Publish to NuGet.org
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
