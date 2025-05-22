@@ -259,5 +259,45 @@ namespace OracleDBReader.Tests
 
             Assert.AreEqual(0, processedCount, "Should not process any rows for an empty result.");
         }
+
+        [TestMethod]
+        public async Task QueryToJsonAsync_Allows_Parallel_And_Cache_Tags()
+        {
+            var mockConnection = new Mock<IDbConnection>();
+            var mockCommand = new Mock<IDbCommand>();
+            var mockReader = new Mock<IDataReader>();
+            var sqls = new[]
+            {
+                "SELECT /*+ PARALLEL */ * FROM DUAL",
+                "SELECT /*+ RESULT_CACHE */ * FROM DUAL",
+                "WITH /*+ PARALLEL */ t AS (SELECT 1 FROM DUAL) SELECT * FROM t"
+            };
+
+            OracleDBReader.DbConnectionFactory = cs => mockConnection.Object;
+            mockConnection.Setup(c => c.Open());
+            mockConnection.Setup(c => c.CreateCommand()).Returns(mockCommand.Object);
+            mockCommand.SetupProperty(c => c.CommandText);
+            mockCommand.Setup(c => c.ExecuteReader(CommandBehavior.SequentialAccess)).Returns(mockReader.Object);
+
+            foreach (var sqlQuery in sqls)
+            {
+                // Reset the read sequence for each query
+                var readSequence = new Queue<bool>(new[] { false });
+                mockReader.Setup(r => r.Read()).Returns(() => readSequence.Dequeue());
+                var jsonResult = await OracleDBReader.QueryToJsonAsync(TestDataSource, TestUser, TestPassword, sqlQuery);
+                var expectedObject = new { Table = new object[] { } };
+                var expectedJson = JsonSerializer.Serialize(expectedObject);
+                Assert.AreEqual(expectedJson, jsonResult, $"Failed for query: {sqlQuery}");
+            }
+        }
+
+        [TestMethod]
+        public async Task QueryToJsonAsync_Rejects_NonSelect_With_Parallel_Tag()
+        {
+            var sqlQuery = "UPDATE /*+ PARALLEL */ Users SET Name = 'X' WHERE 1=0";
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => OracleDBReader.QueryToJsonAsync(TestDataSource, TestUser, TestPassword, sqlQuery)
+            );
+        }
     }
 }

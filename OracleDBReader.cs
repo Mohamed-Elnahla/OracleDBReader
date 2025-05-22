@@ -21,9 +21,18 @@ namespace OracleDBReader
         private static void EnsureSelectQuery(string sqlQuery)
         {
             var trimmed = sqlQuery.TrimStart();
-            if (!(trimmed.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
-                  trimmed.StartsWith("WITH", StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException(OnlySelectError);
+            // Accept SELECT or WITH, possibly followed by whitespace and Oracle hints (/*+ ... */)
+            if (trimmed.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("WITH", StringComparison.OrdinalIgnoreCase))
+            {
+                // Accept
+                return;
+            }
+            // Accept SELECT or WITH followed by whitespace and Oracle hint
+            var selectPattern = @"^(SELECT|WITH)\s*(/\*\+.*?\*/)?";
+            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, selectPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return;
+            throw new InvalidOperationException(OnlySelectError);
         }
 
         /// <summary>
