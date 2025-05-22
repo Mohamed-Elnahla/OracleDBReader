@@ -37,32 +37,45 @@ namespace OracleDBReader
             return columnNames;
         }
 
-        // Helper to build a row dictionary (sync)
-        private static Dictionary<string, object?> BuildRow(IDataReader reader, string[] columnNames)
+        // Internal helper to build a row dictionary
+        private static async Task<Dictionary<string, object?>> BuildRowInternal(
+            IDataReader reader,
+            string[] columnNames,
+            Func<int, Task<object?>> getValueAsync)
         {
             var row = new Dictionary<string, object?>();
             for (int i = 0; i < columnNames.Length; i++)
-                row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            {
+                row[columnNames[i]] = await getValueAsync(i);
+            }
             return row;
+        }
+
+        // Helper to build a row dictionary (sync)
+        private static Dictionary<string, object?> BuildRow(IDataReader reader, string[] columnNames)
+        {
+            return BuildRowInternal(
+                reader,
+                columnNames,
+                i => Task.FromResult<object?>(reader.IsDBNull(i) ? null : reader.GetValue(i))
+            ).GetAwaiter().GetResult();
         }
 
         // Helper to build a row dictionary (async, generic IDataReader)
         private static async Task<Dictionary<string, object?>> BuildRowAsync(IDataReader reader, string[] columnNames, CancellationToken cancellationToken)
         {
-            var row = new Dictionary<string, object?>();
-            for (int i = 0; i < columnNames.Length; i++)
-            {
-                // Try to use IsDBNullAsync if available, else fallback to sync
-                if (reader is System.Data.Common.DbDataReader dbAsyncReader)
+            return await BuildRowInternal(
+                reader,
+                columnNames,
+                async i =>
                 {
-                    row[columnNames[i]] = await dbAsyncReader.IsDBNullAsync(i, cancellationToken) ? null : dbAsyncReader.GetValue(i);
+                    if (reader is System.Data.Common.DbDataReader dbAsyncReader)
+                    {
+                        return await dbAsyncReader.IsDBNullAsync(i, cancellationToken) ? null : dbAsyncReader.GetValue(i);
+                    }
+                    return reader.IsDBNull(i) ? null : reader.GetValue(i);
                 }
-                else
-                {
-                    row[columnNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                }
-            }
-            return row;
+            );
         }
 
         /// <summary>
