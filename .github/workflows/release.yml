@@ -39,13 +39,13 @@ jobs:
         run: dotnet restore OracleDBReader.sln
 
       - name: Build
-        run: dotnet build OracleDBReader.csproj --configuration Release --no-restore
+        run: dotnet build OracleDBReader.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test --configuration Release --no-build --verbosity normal
+        run: dotnet test OracleDBReader.Tests.csproj --configuration Release --no-build --verbosity normal
 
       - name: Pack NuGet and Symbol packages
-        run: dotnet pack --configuration Release --no-build --output ./artifacts /p:IncludeSymbols=true /p:SymbolPackageFormat=snupkg
+        run: dotnet pack OracleDBReader.csproj --configuration Release --no-build --output ./artifacts /p:IncludeSymbols=true /p:SymbolPackageFormat=snupkg
 
       - name: Upload NuGet and Symbol packages as artifact
         uses: actions/upload-artifact@v4
