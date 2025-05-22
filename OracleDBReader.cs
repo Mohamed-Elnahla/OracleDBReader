@@ -15,7 +15,13 @@ namespace OracleDBReader
     {
         private const string OnlySelectError = "Only SELECT queries are allowed. Non-read actions are not permitted.";
 
-        // Factory for creating IDbConnection instances, settable for testing
+        /// <summary>
+        /// Factory for creating <see cref="IDbConnection"/> instances.
+        /// </summary>
+        /// <remarks>
+        /// By default, this factory creates <see cref="OracleConnection"/> instances using the provided connection string.
+        /// It can be overridden for testing purposes to provide mock or alternative implementations of <see cref="IDbConnection"/>.
+        /// </remarks>
         internal static Func<string, IDbConnection> DbConnectionFactory { get; set; } = cs => new OracleConnection(cs);
 
         private static void EnsureSelectQuery(string sqlQuery)
