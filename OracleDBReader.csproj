@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>OracleDBReader</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Mohamed-Elnahla</Authors>
+    <Company>Mohamed-Elnahla</Company>
+    <Description>High-performance .NET 8 library for streaming large Oracle database result sets as JSON. Supports async and parallel row processing. Ideal for ETL, data integration, and analytics. See README for usage and best practices.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/Mohamed-Elnahla/OracleDBReader</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Mohamed-Elnahla/OracleDBReader</PackageProjectUrl>
+    <PackageTags>oracle;database;json;streaming;async;dotnet;nuget;etl;parallel</PackageTags>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <IncludeSource>true</IncludeSource>
+    <Copyright>Copyright © 2025 Mohamed-Elnahla</Copyright>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>Resources/OracleDBReader.png</PackageIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="Resources/OracleDBReader.png" Pack="true" PackagePath="Resources/" />
+    <PackageReference Include="Oracle.ManagedDataAccess" Version="23.8.0" />
+  </ItemGroup>
+
+</Project>
