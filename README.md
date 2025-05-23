@@ -1,6 +1,5 @@
 # OracleDBReader
 
-[![Build Status](https://github.com/Mohamed-Elnahla/OracleDBReader/actions/workflows/release.yml/badge.svg)](https://github.com/Mohamed-Elnahla/OracleDBReader/actions/workflows/release.yml)
 [![NuGet Version](https://img.shields.io/nuget/v/OracleDBReader.svg)](https://www.nuget.org/packages/OracleDBReader)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/OracleDBReader.svg)](https://www.nuget.org/packages/OracleDBReader)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
