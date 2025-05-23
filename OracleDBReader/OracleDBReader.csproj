@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>OracleDBReader</PackageId>
-    <Version>1.0.5</Version>
+    <Version>1.0.5.1</Version>
     <Authors>Mohamed-Elnahla</Authors>
     <Company>Mohamed-Elnahla</Company>
     <Description>High-performance .NET 8 library for streaming large Oracle database result sets as JSON. Supports async and parallel row processing. Ideal for ETL, data integration, and analytics. See README for usage and best practices.</Description>
@@ -23,8 +23,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="" />
-    <None Include="Resources/OracleDBReader.png" Pack="true" PackagePath="Resources/" />
+    <None Include="../README.md" Pack="true" PackagePath="" />
+    <None Include="../Resources/OracleDBReader.png" Pack="true" PackagePath="Resources/" />
     <PackageReference Include="Oracle.ManagedDataAccess" Version="23.8.0" />
   </ItemGroup>
 
