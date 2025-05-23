@@ -50,6 +50,19 @@ jobs:
       - name: Pack NuGet and Symbol packages
         run: dotnet pack OracleDBReader.csproj --configuration Release --no-build --output ./artifacts /p:IncludeSymbols=true /p:SymbolPackageFormat=snupkg
 
+      - name: List artifacts directory contents
+        run: |
+          ls ./artifacts
+      - name: Publish to NuGet.org
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
+      - name: Publish symbols to NuGet.org
+        run: dotnet nuget push ./artifacts/*.snupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
       - name: Upload NuGet and Symbol packages as artifact
         uses: actions/upload-artifact@v4
         with:
@@ -70,13 +83,3 @@ jobs:
             ./artifacts/*.snupkg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish to NuGet.org
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-
-      - name: Publish symbols to NuGet.org
-        run: dotnet nuget push ./artifacts/*.snupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
