@@ -1,85 +1,80 @@
-name: Build and Release
+name: Release and Publish NuGet Package
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
   workflow_dispatch:
-
-permissions:
-  contents: write
+    inputs:
+      version:
+        description: "Version number (e.g., 1.0.0)"
+        required: true
 
 jobs:
-  build:
-    runs-on: windows-latest
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.set-tag.outputs.tag }}
     steps:
-      - name: Ensure tag exists
-        run: |
-          if (-not $env:GITHUB_REF.StartsWith('refs/tags/')) {
-            Write-Error 'This workflow must be triggered by a tag (refs/tags/v*.*.*)'; exit 1
-          }
-
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
+
+      - name: Set version in .csproj
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          FILE=$(find . -name '*.csproj' | head -n 1)
+          echo "Setting version to $VERSION in $FILE"
+          if grep -q "<Version>" "$FILE"; then
+            sed -i 's|<Version>.*</Version>|<Version>'$VERSION'</Version>|' "$FILE"
+          else
+            sed -i '/<PropertyGroup>/a <Version>'$VERSION'</Version>' "$FILE"
+          fi
+
+      - name: Commit version bump and tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git commit -am "Bump version to ${{ github.event.inputs.version }}"
+          git tag v${{ github.event.inputs.version }}
+          git push origin HEAD:main
+          git push origin v${{ github.event.inputs.version }}
+
+      - name: Output tag
+        id: set-tag
+        run: echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+
+  build-publish:
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: "8.x"
 
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            nuget-${{ runner.os }}-
-
-      - name: Clear NuGet cache
-        run: dotnet nuget locals all --clear
-
-      - name: Restore dependencies
-        run: dotnet restore OracleDBReader.sln
+      - name: Restore
+        run: dotnet restore OracleDbReader.sln
 
       - name: Build
-        run: dotnet build OracleDBReader.sln --configuration Release --no-restore
+        run: dotnet build OracleDbReader.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test OracleDBReader.Tests.csproj --configuration Release --no-build --verbosity normal
+        run: dotnet test OracleDbReader.sln --configuration Release --no-build
 
-      - name: Pack NuGet and Symbol packages
-        run: dotnet pack OracleDBReader.csproj --configuration Release --no-build --output ./artifacts /p:IncludeSymbols=true /p:SymbolPackageFormat=snupkg
-
-      - name: List artifacts directory contents
+      - name: Pack main project
         run: |
-          ls ./artifacts
-      - name: Publish to NuGet.org
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          PROJECT=$(find . -name 'OracleDbReader.csproj')
+          dotnet pack "$PROJECT" --configuration Release --no-build --output ./nupkgs
 
-      - name: Publish symbols to NuGet.org
-        run: dotnet nuget push ./artifacts/*.snupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-
-      - name: Upload NuGet and Symbol packages as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nuget-packages
-          path: ./artifacts/*.nupkg
-
-      - name: Upload Symbol packages as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: symbol-packages
-          path: ./artifacts/*.snupkg
+      - name: Push to NuGet
+        run: dotnet nuget push ./nupkgs/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_API_KEY }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v1
         with:
-          files: |
-            ./artifacts/*.nupkg
-            ./artifacts/*.snupkg
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          files: ./nupkgs/*.nupkg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
